@@ -1,0 +1,1137 @@
+---
+title: 'Evidências para o soft power indireto: a opinião pública como variável condicionante ao comportamento político internacional'
+author: "Douglas H. Novelli"
+output:
+  word_document:
+    toc: yes
+  pdf_document:
+    toc: yes
+  html_document:
+    toc: yes
+    number_sections: yes
+    toc_float:
+      collapsed: no
+editor_options:
+  markdown:
+    wrap: 72
+---
+
+```{=html}
+<style>
+body{
+  font-family: Times New Roman;
+  font-size: 18px;
+}
+h1{
+  font-size: 32px;
+}
+h2{
+  font-size: 25px;
+}
+</style>
+```
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introdução
+
+A proposta da pesquisa é verificar em quais circunstância o *soft power*
+indireto gerado pelas nações surge como uma condição suficiente, ou
+parte de uma combinação causal suficiente, para garantir a proximidade
+entre a política de dois Estados, sendo essa medida com base nos padrões
+de votação na Assembleia Geral da ONU. Além das variáveis supracitadas,
+isto é, o *soft power* indireto (variável causal de interesse) e a
+proximidade política (variável de resultado), serão também consideradas
+como possíveis variáveis causais as relações econômicas e militares
+existentes entre os pares de Estados analisados, sendo a metodologia
+escolhida para este estudo a Análise Qualitativa Comparada, em sua
+vertente de valores difusos (fsQCA).
+
+A pesquisa utilizará os pacotes `tidyverse`, para limpeza, organização e
+vizualização dos dados; `plotly`, para tornar interativos os gráficos
+criados com a função `ggplot` (inclusa no `tidyverse`); `rjson`, para a
+coleta de alguns dos dados que serão empregados; `QCA`, criado por
+Adrian Dusa
+[(2019)](https://cran.r-project.org/web/packages/QCA/index.html) com a
+finalidade explícita de realizar pesquisa empregando o método em
+questão; e `veen`, para visualizar o diagrama de Venn criado a partir da
+tabela verdade da pesquisa.
+
+```{r libraries, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(plotly)
+library(rjson)
+library(QCA)
+library(venn)
+```
+
+# Coleta e limpeza dos dados
+
+## Proximidade política entre dois Estados
+
+Conforme mencionado na introdução, para medir a proximidade política
+entre dois Estados serão utilizados os dados de votação na Assembleia
+Geral da ONU (AGNU), utilizados como padrão ouro em pesquisas dessa
+natureza por oferecerem dados mensuráveis e comparáveis ao longo dos
+anos. Esses dados já foram compilados pelos autores Voeten, Strezhnev, e
+Bailey [(2009)](https://doi.org/10.7910/DVN/LEJUQZ), estando disponíveis
+no repositório Harvard Dataverse.
+
+O campo de código abaixo carrega a base de dados em questão no ambiente
+de trabalho:
+
+```{r load:un_data, message=FALSE, warning=FALSE}
+load(url("https://dataverse.harvard.edu/api/access/datafile/4624865"))
+head(dfAgree)
+```
+
+Nota-se nesse estágio que a pesquisa BBC/GlobeScan, utilizada aqui para
+medir o *soft power* dos Estados, envolveu apenas 10 países em suas duas
+dimensões - isto é, apenas indivíduos desses 10 países foram
+entrevistados para compor o índice e, simultaneamente, tiveram seu
+próprio país avaliado por audiências internacionais. Assim, são esses 10
+Estados que serão utilizados como amostra para a pesquisa, recorrendo
+sempre a dados de 2017, ano no qual o índice BBC/GlobeScan foi
+elaborado.
+
+Assim sendo, a base de dados sobre os padrões de votação na AGNU, tal
+qual todas que virão a seguir, podem ser filtradas para conter apenas as
+observações que serão relevantes para a análise. Igualmente, nem todas
+as variáveis contidas no banco de dados são relevantes, sendo possível
+filtrá-las.
+
+```{r filter:un_data, message=FALSE, warning=FALSE}
+countries <- c("BRA", "CAN", "CHN", "FRA", "DEU", "IND", "PAK", "RUS", "GBR", "USA")
+
+un_data <- dfAgree %>%
+  ungroup() %>%
+  filter(year == 2017) %>%
+  filter(iso3c.x %in% countries) %>%
+  filter(iso3c.y %in% countries) %>%
+  select(iso3c.x,
+         iso3c.y,
+         agree,
+         IdealPointDistance)
+head(un_data)
+```
+
+Para concluir a limpeza, é relevante criar uma variável com as siglas
+dos dois Estados (DyadCode), facilitando a identificação futura de cada
+caso:
+
+```{r set:un_data$DyadCode, message=FALSE, warning=FALSE}
+un_data$DyadCode <- paste(un_data$iso3c.x, un_data$iso3c.y, sep = "+")
+head(un_data)
+```
+
+## Soft Power
+
+Para medir o *soft power* indireto de cada nação envolvida no estudo,
+recorre-se à pesquisa de opinião organizada através da parceria entre a
+empresa de consultoria GlobeScan e o Program for Public Consultation
+(PPC) da Universidade de Maryland, financiada pela BBC World News
+[(2017)](https://globescan.com/sharp-drop-in-world-views-of-us-uk-global-poll/#).
+Especificamente, a pesquisa GlobeScan questiona aos entrevistados se
+eles percebem determinado Estado como uma influência majoritariamente
+positiva ou negativa no mundo, retornando dados sobre a percepção de
+cada Estado em cada país onde a pesquisa foi feita, além da percepção
+média observada para cada Estado.
+
+Os dados extraídos da pesquisa GlobeScan foram compilados em um arquivo
+csv, disponibilizado entre os arquivos do projeto.
+
+```{r load:soft_power_data, message=FALSE, warning=FALSE}
+soft_power <- read.table("datasets/soft_power.csv", header = TRUE, sep = ";")
+head(soft_power)
+```
+
+## Fluxo comercial entre os Estados
+
+Conforme mencionado na Introdução, a pesquisa também considera como
+possíveis variáveis causais as relações econômicas e militares
+existentes entre os pares de Estados analisados - isto é, dinâmicas de
+*hard power* existente entre eles.
+
+Como métrica para as relações econômicas, optou-se pela utilização do
+fluxo de comércio entre as partes, recorrendo a base de dados
+disponibilizada pelo [UN Comtrade](https://comtrade.un.org/) (2022). Por
+se tratar de um volume de dados extenso e dividido entre diversos *data
+sets*, optou-se por realizar a coleta através da API do UN Contrade.
+
+O seguinte bloco de código é extraído diretamente do [manual
+disponibilizado pela própria
+plataforma](https://comtrade.un.org/data/Doc/api/ex/r). Ele define a
+função `get.Comtrade()` que será utilizada para extrair os dados.
+
+```{r set:get.Comtrade()}
+get.Comtrade <- function(url="http://comtrade.un.org/api/get?"
+                         ,maxrec=50000
+                         ,type="C"
+                         ,freq="A"
+                         ,px="HS"
+                         ,ps="now"
+                         ,r
+                         ,p
+                         ,rg="all"
+                         ,cc="TOTAL"
+                         ,fmt="json"
+)
+{
+  string<- paste(url
+                 ,"max=",maxrec,"&" #maximum no. of records returned
+                 ,"type=",type,"&" #type of trade (c=commodities)
+                 ,"freq=",freq,"&" #frequency
+                 ,"px=",px,"&" #classification
+                 ,"ps=",ps,"&" #time period
+                 ,"r=",r,"&" #reporting area
+                 ,"p=",p,"&" #partner country
+                 ,"rg=",rg,"&" #trade flow
+                 ,"cc=",cc,"&" #classification code
+                 ,"fmt=",fmt        #Format
+                 ,sep = ""
+  )
+  
+  if(fmt == "csv") {
+    raw.data<- read.csv(string,header=TRUE)
+    return(list(validation=NULL, data=raw.data))
+  } else {
+    if(fmt == "json" ) {
+      raw.data<- fromJSON(file=string)
+      data<- raw.data$dataset
+      validation<- unlist(raw.data$validation, recursive=TRUE)
+      ndata<- NULL
+      if(length(data)> 0) {
+        var.names<- names(data[[1]])
+        data<- as.data.frame(t( sapply(data,rbind)))
+        ndata<- NULL
+        for(i in 1:ncol(data)){
+          data[sapply(data[,i],is.null),i]<- NA
+          ndata<- cbind(ndata, unlist(data[,i]))
+        }
+        ndata<- as.data.frame(ndata)
+        colnames(ndata)<- var.names
+      }
+      return(list(validation=validation,data =ndata))
+    }
+  }
+}
+```
+
+Infelizmente, a API do UN Comtrade apresenta alguns limites para
+usuários gratuitos, os quais impõem a necessidade de certas adequações
+no código de coleta. Entre as limitações mais relevantes para a presente
+pesquisa, destacam-se: (1) apenas uma solicitação pode ser feita por
+segundo, com um máximo de 100 solicitações por hora; e (2) entre os
+argumentos `r` (reporter), `p` (partner) e `ps` (período temporal), se o
+valor de *input* não for `"all"`, então o número máximo de inputs é
+cinco. Partindo dessas limitações técnicas, a forma mais simples de
+excutar a coleta dos dados parece ser um Estado de cada vez, sempre
+utilizando o input `"all"` para o argumento `partner`, com a subsequente
+filtragem das notações necessárias.
+
+(Para mais detalhes sobre as limitações da API, [consultar o
+manual](https://comtrade.un.org/data/doc/api/#DataAvailabilityRequests)).
+
+O bloco de código abaixo define a função `get.Comtrade.ctdata()`,
+utilizada para a coleta dos dados de comércio de cada Estado da amostra.
+Ela recebe dois argumentos, sendo eles o código ISO-alpha 3 e o código
+M49 referente a cada país. Por sua vez, os blocos de código seguintes
+utilizam a mencionada função para efetivamente coletar os dados que
+serão utilizados pela pesquisa.
+
+```{r set:get.Comtrade.ctdata(), message=FALSE, warning=FALSE}
+get.Comtrade.ctdata <- function(state, reporter_code) {
+  
+  Comtrade.countries <- c("WLD", countries)
+  x <- get.Comtrade(r = reporter_code, p = "All", ps = 2017, fmt = "csv")
+  as.data.frame(x$data) %>%
+    select(Trade.Flow, Reporter.ISO, Partner.ISO, Trade.Value..US..) %>%
+    filter(Partner.ISO %in% Comtrade.countries, 
+           Partner.ISO != state, 
+           Trade.Flow %in% c("Import", "Export")
+           )
+}
+```
+
+```{r TradeFlow_Brazil, message=FALSE, warning=FALSE}
+ct_bra <- get.Comtrade.ctdata("BRA", "76")
+ct_bra
+```
+
+```{r TradeFlow_Canada, message=FALSE, warning=FALSE}
+ct_can <- get.Comtrade.ctdata("CAN", "124")
+ct_can
+```
+
+```{r TradeFlow_China, message=FALSE, warning=FALSE}
+ct_chn <- get.Comtrade.ctdata("CHN", "156")
+ct_chn
+```
+
+```{r TradeFlow_France, message=FALSE, warning=FALSE}
+ct_fra <- get.Comtrade.ctdata("FRA", "251")
+ct_fra
+```
+
+```{r TradeFlow_Germany, message=FALSE, warning=FALSE}
+ct_deu <- get.Comtrade.ctdata("DEU", "276")
+ct_deu
+```
+
+```{r TradeFlow_India, message=FALSE, warning=FALSE}
+ct_ind <- get.Comtrade.ctdata("IND", "699")
+ct_ind
+```
+
+```{r TradeFlow_Pakistan, message=FALSE, warning=FALSE}
+ct_pak <- get.Comtrade.ctdata("PAK", "586")
+ct_pak
+```
+
+```{r TradeFlow_Russia, message=FALSE, warning=FALSE}
+ct_rus <- get.Comtrade.ctdata("RUS", "643")
+ct_rus
+```
+
+```{r TradeFlow_UnitedKingdom, message=FALSE, warning=FALSE}
+ct_gbr <- get.Comtrade.ctdata("GBR", "826")
+ct_gbr
+```
+
+```{r TradeFlow_USA, message=FALSE, warning=FALSE}
+ct_usa <- get.Comtrade.ctdata("USA", "842")
+ct_usa
+```
+
+A partir deste ponto, as bases de dados estão todas formatadas do mesmo
+modo, contendo apenas as informações que serão de fato empregadas na
+análise, isto é, os dados de importação e exportação. Entretanto, como a
+pesquisa não demanda distinção da direção do fluxo do comércio, vale a
+pena criar uma nova variável que agrupe os valores de importação e
+exportação entre as díades de Estados. A forma mais fácil de fazer isso
+é através das funções `spread()`, usada aqui para criar as variáveis
+`Export` e `Import` a partir das variáveis `Trade.Flow` e
+`Trade.Value..US..`, e `mutate()`, usada para criar a nova variável
+`Total.Trade.Value_USD` a partir das variáveis `Export` e `Import`.
+
+```{r define:Export_&_Import, message=FALSE, warning=FALSE}
+ct_bra <- ct_bra %>%
+  spread(Trade.Flow, Trade.Value..US..) %>%
+  mutate(Total.Trade.Value_USD = Export + Import, .keep = "unused")
+
+ct_can <- ct_can %>%
+  spread(Trade.Flow, Trade.Value..US..) %>%
+  mutate(Total.Trade.Value_USD = Export + Import, .keep = "unused")
+
+ct_chn <- ct_chn %>%
+  spread(Trade.Flow, Trade.Value..US..) %>%
+  mutate(Total.Trade.Value_USD = Export + Import, .keep = "unused")
+
+ct_deu <- ct_deu %>%
+  spread(Trade.Flow, Trade.Value..US..) %>%
+  mutate(Total.Trade.Value_USD = Export + Import, .keep = "unused")
+
+ct_fra <- ct_fra %>%
+  spread(Trade.Flow, Trade.Value..US..) %>%
+  mutate(Total.Trade.Value_USD = Export + Import, .keep = "unused")
+
+ct_gbr <- ct_gbr %>%
+  spread(Trade.Flow, Trade.Value..US..) %>%
+  mutate(Total.Trade.Value_USD = Export + Import, .keep = "unused")
+
+ct_ind <- ct_ind %>%
+  spread(Trade.Flow, Trade.Value..US..) %>%
+  mutate(Total.Trade.Value_USD = Export + Import, .keep = "unused")
+
+ct_pak <- ct_pak %>%
+  spread(Trade.Flow, Trade.Value..US..) %>%
+  mutate(Total.Trade.Value_USD = Export + Import, .keep = "unused")
+
+ct_rus <- ct_rus %>%
+  spread(Trade.Flow, Trade.Value..US..) %>%
+  mutate(Total.Trade.Value_USD = Export + Import, .keep = "unused")
+
+ct_usa <- ct_usa %>%
+  spread(Trade.Flow, Trade.Value..US..) %>%
+  mutate(Total.Trade.Value_USD = Export + Import, .keep = "unused")
+```
+
+Agora as bases de dados apresentam apenas 3 valores: (1) o Estado que
+apresentou o report; (2) seu parceiro comercial; e (3) as trocas com
+esse parceiro em volume total de dólares norte-americanos (USD).
+
+Nesse ponto, uma observação se faz relevante: em todos as observações,
+embora o valor em USD do fluxo comercial de x com y seja muito próximo
+do de y com x, estes nunca são iguais, mesmo que em tese devessem ser.
+Isso se deve pois o primeiro é calculado com base nos relatórios
+comerciais do Estado x, enquanto o segundo se baseia nos relatórios do
+Estado y, criando um cenário no qual pequenas inconsistências são
+inevitáveis.
+
+Isto posto, o valor bruto dessas trocas comerciais é uma informação
+secundária, tendo em vista que o real interesse é em saber a proporção
+desse valor com relação ao fluxo comercial total desses Estados. Assim,
+foi optado pela manutenção dessas variáveis como estavam, tendo em vista
+que a informação mais relevante é o quão representativas são essas
+trocas comerciais em relação ao fluxo comercial destes Estados como um
+todo, a qual poderia ser negativamente afetada frente a qualquer
+tentativa de ajuste.
+
+É importante ainda criar uma quarta variável, `Share_of_trade`,
+estabelecida para cada díade com relação ao total de trocas comerciais
+do Estado que apresentou o report. Feito isso, a informação do total de
+trocas entre cada Estado e o resto do mundo deixa de ser relevante,
+podendo ser filtrada para fora das bases de dados.
+
+```{r define:Share_of_trade, message=FALSE, warning=FALSE}
+BRA_WLD_trade <- ct_bra[ct_bra$Partner.ISO == "WLD", "Total.Trade.Value_USD"]
+ct_bra <- ct_bra %>%
+  mutate(Share_of_trade = Total.Trade.Value_USD / BRA_WLD_trade) %>%
+  filter(Partner.ISO != "WLD")
+
+CAN_WLD_trade <- ct_can[ct_can$Partner.ISO == "WLD", "Total.Trade.Value_USD"]
+ct_can <- ct_can %>%
+  mutate(Share_of_trade = Total.Trade.Value_USD / CAN_WLD_trade) %>%
+  filter(Partner.ISO != "WLD")
+
+CHN_WLD_trade <- ct_chn[ct_chn$Partner.ISO == "WLD", "Total.Trade.Value_USD"]
+ct_chn <- ct_chn %>%
+  mutate(Share_of_trade = Total.Trade.Value_USD / CHN_WLD_trade) %>%
+  filter(Partner.ISO != "WLD")
+
+DEU_WLD_trade <- ct_deu[ct_deu$Partner.ISO == "WLD", "Total.Trade.Value_USD"]
+ct_deu <- ct_deu %>%
+  mutate(Share_of_trade = Total.Trade.Value_USD / DEU_WLD_trade) %>%
+  filter(Partner.ISO != "WLD")
+
+FRA_WLD_trade <- ct_fra[ct_fra$Partner.ISO == "WLD", "Total.Trade.Value_USD"]
+ct_fra <- ct_fra %>%
+  mutate(Share_of_trade = Total.Trade.Value_USD / FRA_WLD_trade) %>%
+  filter(Partner.ISO != "WLD")
+
+GBR_WLD_trade <- ct_gbr[ct_gbr$Partner.ISO == "WLD", "Total.Trade.Value_USD"]
+ct_gbr <- ct_gbr %>%
+  mutate(Share_of_trade = Total.Trade.Value_USD / GBR_WLD_trade) %>%
+  filter(Partner.ISO != "WLD")
+
+IND_WLD_trade <- ct_ind[ct_ind$Partner.ISO == "WLD", "Total.Trade.Value_USD"]
+ct_ind <- ct_ind %>%
+  mutate(Share_of_trade = Total.Trade.Value_USD / IND_WLD_trade) %>%
+  filter(Partner.ISO != "WLD")
+
+PAK_WLD_trade <- ct_pak[ct_pak$Partner.ISO == "WLD", "Total.Trade.Value_USD"]
+ct_pak <- ct_pak %>%
+  mutate(Share_of_trade = Total.Trade.Value_USD / PAK_WLD_trade) %>%
+  filter(Partner.ISO != "WLD")
+
+RUS_WLD_trade <- ct_rus[ct_rus$Partner.ISO == "WLD", "Total.Trade.Value_USD"]
+ct_rus <- ct_rus %>%
+  mutate(Share_of_trade = Total.Trade.Value_USD / RUS_WLD_trade) %>%
+  filter(Partner.ISO != "WLD")
+
+USA_WLD_trade <- ct_usa[ct_usa$Partner.ISO == "WLD", "Total.Trade.Value_USD"]
+ct_usa <- ct_usa %>%
+  mutate(Share_of_trade = Total.Trade.Value_USD / USA_WLD_trade) %>%
+  filter(Partner.ISO != "WLD")
+```
+
+Com todos os data frames devidamente configurados, podemos proceder para
+sua junção em um único banco de dados, feita através da função
+`rbind()`.
+
+```{r define:ct_data, message=FALSE, warning=FALSE}
+ct_data <- rbind(ct_bra, ct_can, ct_chn, ct_deu, ct_fra, ct_gbr, ct_ind, ct_pak, ct_rus, ct_usa)
+ct_data <- format(ct_data, scientific = FALSE)
+head(ct_data)
+```
+
+Agora a base apresenta as informações consolidadas do fluxo de comércio
+total do Estado x (Reporter.ISO) com o Estado y (Partner.ISO), além da
+porcentagem referente a parcela que esse fluxo comercial representa
+sobre a totalidade das trocas feitas pelo Estado x, com cada díade
+aparecendo duas vezes. Como a pesquisa vai recorrer tanto a porcentagem
+de trocas de x sobre y, quanto de y sobre x, é interessante agrupar
+esses dados na mesma linha.
+
+Uma forma fácil de fazer isso é criando dois novos bancos de dados,
+renomeando as variáveis `Reporter.ISO` e `Partner.ISO` para `Country_x`
+e `Country_y`, invertendo a atribuição de x e y em cada caso, seguido de
+uma nova junção destes bancos de dados em um único, ancorado nos valores
+de `Country_x` e `Country_y`.
+
+Nota-se que o produto ainda será uma base de dados com 90 díades, com
+cada uma se repetindo duas vezes, tal qual na base de dados das votações
+na AGNU. Trata-se de um problema de fácil solução, tendo em vista que
+basta introduzir a variável de `DyadCode` e, durante o processo de união
+de todos os dataframes, eliminar as observações que não constem no banco
+do GlobeScan, o qual já está corretamente filtrado.
+
+```{r consolida:ctdata, message=FALSE, warning=FALSE}
+ct_a <- ct_data %>%
+  rename(Country_x = Reporter.ISO) %>%
+  rename(Country_y = Partner.ISO) %>%
+  rename(Share_x_with_y = Share_of_trade)
+
+ct_b <- ct_data %>%
+  rename(Country_y = Reporter.ISO) %>%
+  rename(Country_x = Partner.ISO) %>%
+  rename(Share_y_with_x = Share_of_trade)
+
+trade_data <- ct_a %>%
+  full_join(ct_b, by = c("Country_x","Country_y")) %>%
+  mutate(DyadCode = paste(Country_x, 
+                          Country_y, sep = "+")) %>%
+  select(DyadCode, Country_x, Country_y, Share_x_with_y, Share_y_with_x)
+
+head(trade_data)
+```
+
+## Relações militares
+
+O aspecto do *hard power* que diz respeito as relações militares entre
+os Estados é de difícil mensuração. Embora o conceito seja originalmente
+definido no sentido de ameaça do uso da força, métricas nesse sentido
+são raras e, em geral, imprecisas. Opta-se ao invés disso por usar o
+padrão de alianças militares entre os Estados como uma variável *proxy*,
+tendo em vista que a existência dessas reduz drasticamente as chances do
+uso da força nas relações entre dois países. Para tanto, será utilizado
+o banco de dados [Formal Alliances
+(v4.1)](https://correlatesofwar.org/data-sets/formal-alliances),
+disponível como parte do projeto The Correlates of War.
+
+Embora sua última atualização remeta ao ano de 2012, sendo, portanto,
+cinco anos mais antiga que os demais dados aqui trabalhados, a análise
+tende a não ser prejudicada, haja visto que se trata de uma métrica
+muito estável. Conforme demonstrado abaixo, mesmo se considerarmos o ano
+de 2012 como ponto final de todas as alianças então correntes, a duração
+média dessas alianças é de aproximadamente 22 anos.
+
+```{r cow_avg, message=FALSE, warning=FALSE}
+cow_avg <- read.table("datasets/alliance_v4.1_by_dyad.csv", header=T, sep=",") %>%
+  mutate(dyad_end_year = ifelse(is.na(dyad_end_year), 2012, dyad_end_year),
+         years_duration = dyad_end_year - dyad_st_year) %>%
+  summarise(mean(years_duration))
+cow_avg
+```
+
+Avançando para a coleta destes dados propriamente dita, nota-se que, dos
+quatro arquivos disponibilizados pelo COW referentes a este *dataset*, o
+"alliance_v4.1_by_directed_yearly.csv" é o que apresenta as informações
+mais detalhadas, incluindo uma observação para cada ano no qual a
+aliança permaneceu ativa. Isso permite facilmente realizar a filtragem
+dos dados para conter apenas as alianças entre os Estados da amostra e
+que estavam ativas em 2012.
+
+```{r load:cow_data, message=FALSE, warning=FALSE}
+cow_countries <- c("Brazil", "Canada", "China", "France", "Germany", "India", "Pakistan", "Russia", "United Kindom", "United States of America")
+
+cow_data <- read.table("datasets/alliance_v4.1_by_dyad_yearly.csv", header=T, sep=",") %>%
+  filter(year == 2012,
+         state_name1 %in% cow_countries,
+         state_name2 %in% cow_countries) %>%
+  select(state_name1, state_name2, defense, neutrality, nonaggression, entente)
+
+head(cow_data)
+```
+
+Diferente dos demais dados que serão utilizados, a base do COW não
+apresenta os códigos ISO-alpha 3 para os Estados, empregando apenas seu
+nome por extenso. Para a facilitar a futura junção das diferentes bases
+de dados, uma padronização é necessária para concluir a limpeza.
+
+```{r consolida:cow_data, message=FALSE, warning=FALSE}
+cow_data[cow_data == "Brazil"] <- "BRA"
+cow_data[cow_data == "Canada"] <- "CAN"
+cow_data[cow_data == "China"] <- "CHN"
+cow_data[cow_data == "France"] <- "FRA"
+cow_data[cow_data == "Germany"] <- "DEU"
+cow_data[cow_data == "India"] <- "IND"
+cow_data[cow_data == "Pakistan"] <- "PAK"
+cow_data[cow_data == "Russia"] <- "RUS"
+cow_data[cow_data == "United Kindom"] <- "GBR"
+cow_data[cow_data == "United States of America"] <- "USA"
+
+cow_data_1 <- cow_data %>%
+  rename(iso3c.x = state_name1, iso3c.y = state_name2)
+cow_data_2 <- cow_data %>%
+  rename(iso3c.y = state_name1, iso3c.x = state_name2)
+
+cow_data <- rbind(cow_data_1, cow_data_2)
+cow_data <- cow_data %>%
+  mutate(DyadCode = paste(cow_data$iso3c.x,
+                          cow_data$iso3c.y, sep = "+"))
+head(cow_data)
+```
+
+# Análise inicial e calibração *fuzzy*
+
+## Proximidade política entre dois Estados
+
+Conforme já mencionado, uma questão comum nas bases de dados trabalhadas
+é a duplicidade dos valores referentes as díades. Os dados relacionais
+entre Brasil e China, por exemplo, aparecem duas vezes, primeiro com o
+DyadCode BRA+CHN; depois como CHN+BRA. Apesar da ordem invertida, os
+dados são os mesmos, sendo aconselhável filtrar a versão dobrada.
+Felizmente, os dados da pesquisa BBC / Globescan estão corretos, podendo
+servir de base para a filtragem das demais bases.
+
+```{r define:clean_set, message=FALSE, warning=FALSE}
+clean_set <- soft_power %>%
+  select(DyadCode)
+
+un_data <- clean_set %>%
+  inner_join(un_data, by = "DyadCode")
+```
+
+Uma vez filtrada, a base de dados sobre os padrões de votação na AGNU
+agora traz duas informações relevantes: a % de concordância entre os
+pares de Estados; e seu *ideal point distance* (IPD) naquele ano.
+
+Como Bailey, Strezhnev e Voeten
+[(2009)](https://doi.org/10.7910/DVN/LEJUQZ) apontam, o IPD é uma
+métrica mais apropriada para medir o posicionamento dos Estados, tendo
+em vista que seu cálculo considera potenciais alterações na agenda da
+AGNU entre as sessões, razão pela qual a pesquisa opta por seu uso.
+Nota-se ainda que, quanto maior o IPD entre dois países, mais distintos
+são seus padrões de voto.
+
+Assim, o primeiro passo na análise parece ser verificar como se
+distribuem ao logo da amostra os IPD entre os pares de Estados que estão
+sendo considerados.
+
+```{r plot:g1, message=FALSE, warning=FALSE}
+g1 <- ggplot(un_data, aes(x = reorder(DyadCode, -IdealPointDistance), y = IdealPointDistance))+
+  geom_histogram(stat = "identity", alpha = 0.6, fill = "#66adff")+
+  theme_minimal()+
+  theme(axis.text.x = element_blank(), 
+        axis.ticks.x = element_blank())+
+  labs(title = "Distribuição dos IPD entre os pares de Estados", 
+       subtitle = "2017",
+       caption="Dados de Voeten, Strezhnev e Bailey (2009).",
+       y = "IPD",
+       x = "Pares de Estados")
+
+ggplotly(g1)
+```
+
+É possível notar três grupos distintos, sendo eles: (1) pares de Estados
+com uma discordância inferior a 0.5; (2) pares com uma discordância
+superior a 2.5; e (3) pares cuja discordância flutua entre,
+aproximadamente, 1 e 2 pontos - isto é, Estados que sistematicamente
+votam de forma similar; Estados que sistematicamente adotam posições
+antagônicas; e Estados cujas posições parecem ser independentes.
+
+Um padrão similar surge ao considerarmos a relação entre a similaridade
+dos votos e porcentagem de concordância:
+
+```{r plot:g2, message=FALSE, warning=FALSE}
+un_data <- un_data %>%
+  mutate(group = ifelse(IdealPointDistance > 2.5, "Próximos",
+                        ifelse(IdealPointDistance < 0.5, "Antagônicos", 
+                               "Independentes")))
+
+g2 <- ggplot(un_data, aes(x = IdealPointDistance,
+                          y = agree,
+                          label = DyadCode,
+                          color = group))+
+  geom_point()+
+  theme_minimal()+
+  scale_color_manual(values=c("#619CFF", "#00BA38", "#F8766D"))+
+  theme(legend.position = "none")+
+  labs(title = "IPD vs. Similaridade dos votos entre os pares de Estados", 
+       subtitle = "2017",
+       caption="Dados de Voeten, Strezhnev e Bailey (2009).",
+       x = "IPD",
+       y = "Similaridade (% de concordância)")
+
+ggplotly(g2, tooltip = c("DyadCode", "IdealPointDistance"))
+```
+
+Nota-se que o fsQCA demanda o estabelecimento de três limiares
+qualitativos para cada variável considerada na análise, representando os
+limiares de completa adesão dos casos ao conjunto que a variável
+representa [1]; sua completa exclusão do conjunto [0]; e o ponto de
+máxima ambiguidade entre pertencimento e exclusão [0.5].
+
+Assim, no caso da variável em questão, opta-se por considerar um IPD de
+**0.5** como limiar de pleno pertencimento pleno ao conjunto de diádes
+politicamente próximas; **2.5** como limiar de plena exclusão do
+conjunto; e **1.5** como o ponto de máxima ambiguidade.
+
+Com base nesses limiares qualitativos, se avança para a calibração dos
+dados para os valores difusos que serão empregados, cujas âncoras
+qualitativas já foram apresentadas. Para tanto, emprega-se a função
+`calibrate`, disponível como parte do pacote `QCA`, de autoria de Adrian
+Dusa [(2019)](https://cran.r-project.org/web/packages/QCA/index.html),
+onde:
+
+-   `type` se refere ao tipo de calibração ("crisp" ou "fuzzy"), aqui
+    sendo empregada a modalidade *fuzzy*;
+-   `method` se refere ao método da calibração ("direct" ou "indirect"),
+    aqui sendo empregado o método direto; e
+-   `thresholds` se referem as âncoras qualitativas empregadas, sendo
+    "e" referente ao ponto de exclusão do conjunto (0.05), "c" ao ponto
+    de máxima ambiguidade (0.5), e "i" ao ponto de plena inclusão no
+    conjunto (0.95). Nota-se ainda que a variável Força das Relações
+    Militares já está configurada no formato fuzzy, dispensando a
+    calibração.
+
+O bloco de código abaixo calibra os dados em questão com os valores
+supracitados, seguido da apresentação gráfica do conjunto de dados
+calibrados.
+
+```{r cablibrate:un_data, echo=FALSE, warning=FALSE}
+un_data$fs_unvotes <- calibrate(un_data$IdealPointDistance, type = "fuzzy", method = "direct", thresholds = "e=2.5, c=1.5, i=0.5")
+
+g3 <- ggplot(un_data, aes(x = IdealPointDistance,
+                          y = fs_unvotes,
+                          label = DyadCode))+
+  geom_point()+
+  theme_minimal()+
+  labs(title = "Proximidade na AGNU - calibração fuzzy", 
+       subtitle = "2017",
+       caption="Baseado nos dados de Voeten, Strezhnev e Bailey (2009).",
+       x = "IPD",
+       y = "Valor fuzzy")+
+  geom_vline(xintercept = 0.5, col = "red", alpha = 0.6, linetype="dashed")+
+  geom_vline(xintercept = 2.5, col = "red", alpha = 0.6, linetype="dashed")+
+  geom_vline(xintercept = 1.5, col = "red", alpha = 0.6, linetype="dashed")
+
+ggplotly(g3)
+```
+
+## *Soft power* indireto (atração)
+
+A teoria fornence poucas indicações do tratamento que deve ser dado às
+opiniões negativas, apenas sugerindo que estas podem afetar o *soft
+power* de uma nação tanto quanto as opiniões positivas das populações de
+outros Estados sobre a nação em questão (Nye, 2004). Assim, será feita a
+opção por desagregar a análise em duas variáveis, trabalhando
+inicialmente apenas com as opiniões positivas (atração).
+
+Ademais, diferente da variável anterior, que apresenta um único valor
+para cada díade de Estados, a métrica utilizada para medir o *soft
+power* indireto existente entre os Estados oferece dois valores, sendo
+eles a porcentagem da população do país x que apresenta uma visão
+positiva do país y; e a porcentagem da população do país y que apresenta
+uma visão positiva do país x. Sendo as relações de poder um fenômeno
+relacional por definição, opta-se por trabalhar com as médias das
+opiniões positivas registradas em cada díade, haja visto que ambas as
+populações nutrindo uma opinião positiva sobre o outro país deve
+fortalecer de ambos os lados os incentivos para que seus governos
+aproximem suas políticas externas, tornando essa aproximação mais
+provável.
+
+```{r set:p_views, message=FALSE, warning=FALSE}
+soft_power$avg_p <- (soft_power$Pos_x_over_y + soft_power$Pos_y_over_x)/2
+  
+
+p_views <- soft_power %>%
+  select(DyadCode, avg_p)
+
+head(p_views)
+```
+
+Recortado apenas as avaliações positivas e obtendo valor máximo para
+cada díade, se avança para a análise gráfica da variável em questão,
+começando por sua distribuição ao logo da amostra.
+
+```{r plot:g4, message=FALSE, warning=FALSE}
+g4 <- ggplot(p_views, aes(x = reorder(DyadCode, -avg_p), y = avg_p))+
+        geom_bar(stat = "identity", alpha = 0.6, fill = "#619CFF")+
+        theme_minimal()+
+        theme(axis.text.x = element_blank(), 
+              axis.ticks.x = element_blank())+
+        labs(title = "Distribuição das opiniões positivas - Valor médio entre as díades", 
+        subtitle = "2017",
+        caption="Pesquisa BBC/GlobeScan (2017).",
+        y = "% de respondentes",
+        x = element_blank())
+
+ggplotly(g4)
+```
+
+Considera-se que mesmo entre os países que não são uma democracia, o
+índice médio de 50% de opiniões positivas em uma díade deve fornecer
+incentivos fortes o suficientes para a criação de um ambiente favorável
+a aproximação de suas políticas externas - ao menos partindo do
+pressuposto que o *soft power* indireto funcionará conforme previsto por
+Nye (2004). Por outro lado, índices inferiores a 5% devem apresentar
+situações nas quais as populações destes Estados não apresentem qualquer
+pressão relevante por uma aproximação entre seus Estados, tornando-os,
+efetivamente, independentes do *soft power* indireto gerado por qualquer
+uma das partes. Por sua vez, uma média próxima a 1/3 das populações
+desses Estados apresentando opiniões positivas sobre o outro parece
+apresentar o ponto máximo de ambiguidade.
+
+Assim, se estabelece como **50%** o limiar para o completo pertencimento
+de casos ao conjunto de díades com opiniões positivas favoráveis; **5%**
+como o limiar para a completa exclusão do conjunto; e **33%** como o
+ponto de máxima ambiguidade.
+
+```{r cablibrate:p_views, echo=FALSE, warning=FALSE}
+p_views$fs_pviews <- calibrate(p_views$avg_p, type = "fuzzy", method = "direct", thresholds = "e=5, c=33, i=50")
+
+g5 <- ggplot(p_views, aes(x = avg_p, y = fs_pviews, label = DyadCode))+
+  geom_point()+
+  theme_minimal()+
+  labs(title = "Opiniões positivias - calibração fuzzy", 
+       subtitle = "2017",
+       caption="Baseado nos dados da pesquisa BBC/GlobeScan (2017).",
+       x = "% de opiniões positivas",
+       y = "Valor fuzzy")+
+  geom_vline(xintercept = 50, col = "red", alpha = 0.6, linetype="dashed")+
+  geom_vline(xintercept = 33, col = "red", alpha = 0.6, linetype="dashed")+
+  geom_vline(xintercept = 5, col = "red", alpha = 0.6, linetype="dashed")
+
+ggplotly(g5)
+```
+
+## *Soft power* "negativo" (repulsão)
+
+Concluída a calibração das opiniões positivas, avançamos para a segunda
+variável relativa ao *soft power* nacional, isto é, as opiniões
+negativas que cada país analisado desperta nas populações dos demais.
+
+```{r define:n_views, message=FALSE, warning=FALSE}
+soft_power$avg_n <- (soft_power$Neg_x_over_y + soft_power$Neg_y_over_x)/2
+
+n_views <- soft_power %>%
+  select(DyadCode, avg_n)
+
+head(n_views)
+```
+
+Avançando para a análise gráfica da variável em questão, têm-se:
+
+```{r plot:g4 n_views, echo=FALSE}
+g6 <- ggplot(n_views, aes(x = reorder(DyadCode, -avg_n), y = avg_n))+
+        geom_bar(stat = "identity", alpha = 0.6, fill = "#F8766D")+
+        theme_minimal()+
+        theme(axis.text.x = element_blank(), 
+              axis.ticks.x = element_blank())+
+        labs(title = "Distribuição das opiniões negativas - Valor máximo entre as díades", 
+        subtitle = "2017",
+        caption="Pesquisa GlobeScan (2017).",
+        y = "% de respondentes",
+        x = element_blank())
+
+ggplotly(g6)
+```
+
+Como no caso anterior, essa variável também extraí seus dados da
+pesquisa BBC / GlobeScan, com a mesma lógica sen aplicável: tomando o
+limiar médio de 50% para definir quando as opiniões negativas entre uma
+díade são fortes o suficiente para criar incentios contrários a
+aproximação de suas políticas externas. Igualmente, toma-se os índices
+inferiores a 5% para definir situações livres de pressão por um
+afastamento e 33% como ponto máximo de ambiguidade.
+
+```{r cablibrate:n_views, echo=FALSE, warning=FALSE}
+n_views$fs_nviews <- calibrate(n_views$avg_n, type = "fuzzy", method = "direct", thresholds = "e=5, c=33, i=50")
+
+g7 <- ggplot(n_views, aes(x = avg_n, y = fs_nviews, label = DyadCode))+
+  geom_point()+
+  theme_minimal()+
+  labs(title = "Opiniões negativas - calibração fuzzy", 
+       subtitle = "2017",
+       caption="Baseado nos dados da pesquisa BBC/GlobeScan (2017).",
+       x = "% de opiniões negativas",
+       y = "Valor fuzzy")+
+  geom_vline(xintercept = 50, col = "red", alpha = 0.6, linetype="dashed")+
+  geom_vline(xintercept = 33, col = "red", alpha = 0.6, linetype="dashed")+
+  geom_vline(xintercept = 5, col = "red", alpha = 0.6, linetype="dashed")
+
+ggplotly(g7)
+```
+
+## Fluxo comercial
+
+De forma semelhante ao notado nas variáveis associadas ao *soft power*
+nacional, o fluxo de comércio também apresenta dois valores para os
+Estados de cada díade, referentes a porcentagem que um Estado x
+representa do total das trocas comerciais com o Estado y e vice-versa.
+Assim, considerando a necessidade de agregar esses valores em uma única
+métrica que faça sentido na análise relacional proposta, o mesmo
+tratamento será aplicado, baseando a análise no valor médio entre os
+dois valores apresentados.
+
+```{r set:avg_trade, message=FALSE, warning=FALSE}
+trade_data <- clean_set %>%
+  inner_join(trade_data, by = "DyadCode")
+
+trade_data$Share_x_with_y <- as.numeric(trade_data$Share_x_with_y)
+trade_data$Share_y_with_x <- as.numeric(trade_data$Share_y_with_x)
+trade_data$avg_trade <- (trade_data$Share_x_with_y + trade_data$Share_y_with_x)/2
+
+trade_data <- trade_data %>%
+  select(DyadCode, avg_trade)
+
+head(trade_data)
+```
+
+```{r plot:g9, message=FALSE, warning=FALSE}
+g8 <- ggplot(trade_data, aes(x = reorder(DyadCode, -avg_trade), y = avg_trade))+
+        geom_histogram(stat = "identity", alpha = 0.5, fill = "#00BA38")+
+        theme_minimal()+
+        theme(axis.text.x = element_blank(),
+              axis.ticks.x = element_blank())+
+        scale_y_continuous(labels = scales::percent)+
+        labs(
+          title = "% das trocas comerciais - Valor médio entre as díades de Estados",
+          subtitle = "2017",
+          caption="UN Comtrade (2022).",
+          y = element_blank(),
+          x = element_blank())
+
+ggplotly(g8)
+```
+
+É relevante notar que essa métrica ignora aspectos como a importancia
+estratégica de cada produto, além não considerar outros aspectos das
+relações econômicas entre as partes, sobretudo no setor de
+investimentos. Essa também é sem dúvida a variável com a ancoragem
+qualitativa mais complexa, com a teoria base fornecendo poucos indícios
+para os limiares demandados pelo QCA. Essa variável deve assim ser
+tomada como uma *proxy* um tanto problemática, a qual, idealmente, deve
+ser substituída por métricas mais confiáveis no futuro, caso essas se
+tornem acessíveis.
+
+Isto posto, se adotará como limiares qualitativos os valores de **0.15
+(15%)** para determinar a dependencia de uma economia sobre a outra;
+**0.01 (1%)** como limiar de independencia entre os mercados; e **0.075
+(7.5%)** como ponto de máxima ambiguidade.
+
+```{r cablibrate:trade, echo=FALSE, warning=FALSE}
+trade_data$fs_trade <- calibrate(trade_data$avg_trade, type = "fuzzy", method = "direct", thresholds = "e=0.01, c=0.075, i=0.15")
+
+g9 <- ggplot(trade_data, aes(x = avg_trade, y = fs_trade, label = DyadCode))+
+  geom_point()+
+  theme_minimal()+
+  labs(title = "Trocas comerciais - calibração fuzzy", 
+       subtitle = "2017",
+       caption="Baseado nos dados do UN Comtrade (2022).",
+       x = "% das trocas comerciais",
+       y = "Valor fuzzy")+
+  geom_vline(xintercept = 0.15, col = "red", alpha = 0.6, linetype="dashed")+
+  geom_vline(xintercept = 0.075, col = "red", alpha = 0.6, linetype="dashed")+
+  geom_vline(xintercept = 0.01, col = "red", alpha = 0.6, linetype="dashed")
+
+ggplotly(g9)
+```
+
+## Relações Militares
+
+O banco de dados do Correlates of War (COW) oferece informações sobre
+quatro tipos distintos de alianças formais entre Estados, sendo:
+
+-   "*defense*", quando os Estados se comprometem a oferecer suporte
+    militar caso a segurança de uma das partes seja violada;
+-   "*neutrality*", quando as partes se comprometem a não tomar parte em
+    conflitos nos quais a outra parte esteja envolvida;
+-   "*nonaggression*", quando concordam com uma promessa de não agressão
+    uma em relação a outra; e
+-   "*entente*", quando concordam em consultar um ao outro em casos de
+    crise.
+
+Conforme apontado por Douglas Gibler (2009), pesquisador responsável
+pelo dataset em questão, notavelmente há um certo grau de hierarquia
+entre os tipos de aliança, com o tratado de defesa no topo, seguido pelo
+de neutralidade, não-agressão e o de entente, com os tratados de
+hierarquias superiores comumente incluindo cláusulas referentes ao
+demais tipos. Assim, de certo modo, a própria base de dados oferece os
+limiares necessários para a realização do QCA. Destarter, opta-se pela
+utilização, nesse caso específico, do método de calibração *fuzzy*
+indireto estabelecendo os **tratados de defesa** como o limiar
+qualitativo de pleno pertencimento de cada díade no conjunto de Estados
+que são aliados (1); os tratados de **neutralidade** (0.8) e
+**não-agressão** (0.6) como casos que estão mais dentro do que fora do
+conjunto; o tratado de **entente** (0.4) como casos que estão mais fora
+do que dentro do conjunto; e a **inexistência de qualquer tratado** como
+limiar de plena exclusão (0).
+
+O bloco de códigos abaixo organiza a base de dados de acordo com o os
+parâmetros estabelecidos acima.
+
+```{r define:alliance_type, message=FALSE, warning=FALSE}
+cow_data <- cow_data %>%
+  mutate(fs_alliance = ifelse(defense == 1, 1,
+                          ifelse(neutrality == 1, 0.8,
+                            ifelse(nonaggression == 1, 0.6,
+                              ifelse(entente == 1, 0.4, 0))))) %>%
+  select(DyadCode, fs_alliance) %>%
+  distinct(.keep_all = FALSE) %>%
+  right_join(clean_set, by = "DyadCode") %>%
+  replace(is.na(.), 0)
+
+head(cow_data)
+```
+
+Com o data frame configurado, a tabela abaixo apresenta a distribuição
+dos casos da amostra:
+
+```{r plot:table5, message=FALSE, warning=FALSE}
+tibble(
+  Limiares_qualitativos = c("Díades com tratados de defesa [1]",
+                            "Díades com tratados de neutralidade [0.8]",
+                            "Díades com tratados de não-agressão [0.6]",
+                            "Díades com tratados de entente [0.4]",
+                            "Díades sem tratados militares [0]"),
+  Frequência = c(
+    (nrow(subset(cow_data, fs_alliance == 1))),
+    (nrow(subset(cow_data, fs_alliance == 0.8))),
+    (nrow(subset(cow_data, fs_alliance == 0.6))),
+    (nrow(subset(cow_data, fs_alliance == 0.4))),
+    (nrow(subset(cow_data, fs_alliance == 0)))
+  )
+)
+```
+
+# mvQCA
+
+Com todos os bancos de dados coletados e calibrados, podemos proceder
+para a junção desse material em um único banco de dados, o qual servirá
+de base para a construção da tabela verdade da análise.
+
+```{r qca_data, message=FALSE, warning=FALSE}
+qca_data <- clean_set %>%
+  inner_join(un_data, by = "DyadCode") %>%
+  inner_join(p_views, by = "DyadCode") %>%
+  inner_join(n_views, by = "DyadCode") %>%
+  inner_join(trade_data, by = "DyadCode") %>%
+  inner_join(cow_data, by = "DyadCode") %>%
+  select(DyadCode, fs_unvotes, fs_pviews, fs_nviews, fs_trade, fs_alliance)
+
+head(qca_data)
+```
+
+Com os dados consolidados, o próximo passo é realizar a análise de
+necessidade das variáveis causais para a presença da variável de
+resultado. Conforme sugerido por Schneider e Wagemann (2007), adota-se
+um patamar de consistência mínimo de 0.9 para considerar uma condição
+como necessária. Esses valores podem ser obtidos através da função
+`pof`, onde `setms` se refere a variável de interesse; `outcome` a
+variável de resultado; e `relation` a relação que se busca entre os dois
+conjuntos - no caso, da variável de interesse ser necessária para a
+ocorrência da variável de resultado.
+
+```{r necessity_test, message=FALSE, warning=FALSE}
+n1 <- pof(setms = qca_data$fs_pviews,
+          outcome = qca_data$fs_unvotes,
+          relation = "necessity")
+n1 <- as.data.frame(n1$incl.cov)
+
+n2 <- pof(setms = qca_data$fs_nviews,
+          outcome = qca_data$fs_unvotes,
+          relation = "necessity")
+n2 <- as.data.frame(n2$incl.cov)
+
+n3 <- pof(setms = qca_data$fs_trade,
+          outcome = qca_data$fs_unvotes,
+          relation = "necessity")
+n3 <- as.data.frame(n3$incl.cov)
+
+n4 <- pof(setms = qca_data$fs_alliance,
+          outcome = qca_data$fs_unvotes,
+          relation = "necessity")
+n4 <- as.data.frame(n4$incl.cov)
+
+necessity <- rbind(n1, n2, n3, n4) %>%
+  rename(Consistência = inclN) %>%
+  rename(Relevância = RoN) %>%
+  rename(Cobertura = covN) %>%
+  print()
+```
+
+Embora o índice de relevância de algumas variáveis seja elevado (ver
+Schneider e Wagemann, 2007), a consistência de todas elas fica muito
+abaixo do índice de 0.9 recomendável para uma variável causal ser
+considerada necessária para o resultado, de modo que elas podem ser
+descartadas enquanto variáveis necessárias.
+
+Avançando para a análise de suficiência, essa é conduzida com base da
+tabela verdade, principal ferramenta analítica do QCA, realizada aqui
+através da função `QCA::truthTable`, onde:
+
+-   `outcome` determina à variável dependente, no caso os padrões de
+    voto na AGNU;
+-   `conditions` se refere às variáveis independetes; e
+-   `incl.cut` estabelece a consistência mínima para determinada
+    configuração ser considerada positiva, adotando aqui o valor mínimo
+    de 0.8 sugerido por Ragin (2008) como consistência padrão para
+    condições suficientes em *fuzzy sets*.
+
+```{r truth_table, message=FALSE, warning=FALSE}
+row.names(qca_data) <- qca_data$DyadCode #identifica os casos por sua DyadCode, facilitando a visualização na tabela verdade.
+
+truth_table <- truthTable(qca_data, outcome = "fs_unvotes", 
+                          conditions = "fs_pviews, fs_nviews, fs_trade, 
+                                        fs_alliance",
+                          incl.cut = 0.8)
+
+truth_table
+```
+
+A partir da tabela verdade criada, é possível gerar um diagrama de Venn
+apresentando os resultados de todas as possíveis combinações das
+variáveis causais.
+
+```{r venn_diagram, message=FALSE, warning=FALSE}
+venn(truth_table, ellipse = TRUE, ilabels = TRUE)
+```
+
+Através da função `QCA::minimize` podemos reduzir a complexidade da
+solução e apresentar os caminhos de suficiência causal, nos quais a
+combinação da presença das variáveis independentes são suficientes para
+a produção da variável dependente.
+
+```{r minimize, message=FALSE, warning=FALSE}
+minimize(truth_table, include = "?", details = TRUE)
+```
+
+# Conclusão
+
+Três soluções causais emergem como suficientes para a produção do
+resultado, sendo:
+
+-   A ausência de um índice elevado de opiniões negativas entre os
+    Estados;
+
+-   A presença de um índice elevado de opiniões positivas entre os
+    Estados acompanhada de uma aliança militar e da ausência de uma
+    interdependencia econômica; e
+
+-   A presença de um índice elevado de opiniões positivas entre os
+    Estados acompanhada de uma interdependencia econômica e da ausência
+    de uma aliança militar entre as partes.
+
+Notavelmente, os três casos incluem variáveis associadas ao *soft power*
+indireto, seja através da ausência de uma repulsa entre as populações
+desses Estados (solução 1) ou da presença de atração entre essas
+populações acompanhada de alguma outra variável causal (soluções 2 e 3),
+reforçando a importância do fenômeno para a compreensão das relações
+entre os Estados.
+
+# Referências
+
+Bailey, M. A., Strezhnev, A. and Voeten, E. (2009) 'United Nations
+General Assembly Voting Data', *Harvard Database*, 18. doi:
+<https://doi.org/10.7910/DVN/LEJUQZ.>
+
+BBC and GlobeScan (2017) *Sharp Drop in World Views of US, UK: Global
+Poll*. Available at:
+<https://globescan.com/sharp-drop-in-world-views-of-us-uk-global-poll/#backgrounder-country-by-country-results>
+(Accessed: 22 October 2022).
+
+Duşa, A. (2019) *QCA with R - A Comprehensive Resource*. New York:
+Springer.
+
+Gibler, D. M. (2009) 'International military alliances, 1648-2008',
+*Congressional Quarterly Press*, (v4.1).
+
+Nye, J. (2004) *Soft Power: The Means to Sucess in World Politics*.
+Cambridge: Public Affairs.
+
+United Nations (2022) *UN Comtrade Database*. Available at:
+<https://comtrade.un.org/data/> (Accessed: 22 October 2022).
