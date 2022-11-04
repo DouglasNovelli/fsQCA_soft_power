@@ -1061,7 +1061,7 @@ n1 <- pof(setms = qca_data$fs_pviews,
           relation = "necessity")
 n1 <- as.data.frame(n1$incl.cov)
 
-n2 <- pof(setms = qca_data$fs_nviews,
+n2 <- pof(setms = 1 - qca_data$fs_nviews, #nega a condição
           outcome = qca_data$fs_unvotes,
           relation = "necessity")
 n2 <- as.data.frame(n2$incl.cov)
